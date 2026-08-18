@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { completeLanderChat } from "./deepseekChat";
 
 function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -49,39 +50,18 @@ export async function handleLanderRequest(
       return;
     }
 
-    const response = await fetch(`${baseUrl}/chat/completions`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "deepseek-chat",
-        messages: body.messages,
-        response_format: { type: "json_object" },
-        temperature: 0.2,
-      }),
+    const result = await completeLanderChat({
+      apiKey,
+      baseUrl,
+      messages: body.messages,
     });
 
-    const data = (await response.json()) as {
-      choices?: { message?: { content?: string } }[];
-      error?: { message?: string };
-    };
-
-    if (!response.ok) {
-      sendJson(res, 502, {
-        error: data.error?.message ?? "I couldn't process that request. Please try again.",
-      });
+    if (!result.ok) {
+      sendJson(res, result.status, { error: result.error });
       return;
     }
 
-    const content = data.choices?.[0]?.message?.content;
-    if (!content) {
-      sendJson(res, 502, { error: "I couldn't process that request. Please try again." });
-      return;
-    }
-
-    sendJson(res, 200, { content });
+    sendJson(res, 200, { content: result.content });
   } catch {
     sendJson(res, 500, { error: "I couldn't process that request. Please try again." });
   }

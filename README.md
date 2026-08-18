@@ -130,3 +130,13 @@ DEEPSEEK_BASE_URL=https://api.deepseek.com
 ```
 
 Open [http://localhost:5173](http://localhost:5173).
+
+## Deploy on Vercel
+
+1. Push this repo to GitHub.
+2. In [Vercel](https://vercel.com/new), import `lander-bot`.
+3. Framework preset: **Vite**. Output: `dist`.
+4. Settings → Environment Variables, add:
+   - `DEEPSEEK_API_KEY`
+   - `DEEPSEEK_BASE_URL` = `https://api.deepseek.com`
+5. Deploy.

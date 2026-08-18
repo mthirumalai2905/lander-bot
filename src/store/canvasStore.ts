@@ -2,33 +2,18 @@ import { create } from "zustand";
 import { createInitialRegistry, syncRegistryIds } from "../engine/componentRegistry";
 import { applyUndo } from "../engine/history";
 import { executeBatch } from "../engine/batchExecutor";
-import type { AttributePermissions, DesignComponent } from "../types/component";
+import { SESSIONS, isSessionId, sessionById, type SessionId } from "../sessions/catalog";
+import {
+  defaultTextFor,
+  type AttributePermissions,
+  type ComponentType,
+  type DesignComponent,
+} from "../types/component";
 import type { OperationHistoryEntry } from "../types/conversation";
 import type { AppliedChange, Operation } from "../types/operation";
 import { ribbonSpeedsFor } from "../utils/ribbons";
 
-function hydrateRegistry(registry: DesignComponent[]): DesignComponent[] {
-  return registry.map((component) => ({
-    ...component,
-    permissions: {
-      ...component.permissions,
-      animation: component.permissions.animation ?? true,
-    },
-    state: {
-      ...component.state,
-      ribbonSpeeds: ribbonSpeedsFor(
-        component.state.colors.length,
-        component.state.ribbonSpeeds,
-      ),
-      width: Math.max(component.state.width, 520),
-      height: Math.max(component.state.height, 240),
-    },
-  }));
-}
-
-const STORAGE_KEY = "lander-bot-canvas";
-
-interface CanvasStore {
+export interface CanvasSlice {
   registry: DesignComponent[];
   groups: Record<string, string[]>;
   selectedComponentIds: string[];
@@ -39,6 +24,67 @@ interface CanvasStore {
   operationHistory: OperationHistoryEntry[];
   zoom: number;
   showCode: boolean;
+}
+
+const STORAGE_KEY = "lander-bot-sessions-v1";
+
+function hydrateRegistry(registry: DesignComponent[]): DesignComponent[] {
+  return registry.map((component) => ({
+    ...component,
+    permissions: {
+      ...component.permissions,
+      animation: component.permissions.animation ?? true,
+    },
+    state: {
+      ...component.state,
+      type: component.state.type ?? component.type,
+      ribbonSpeeds: ribbonSpeedsFor(
+        component.state.colors.length,
+        component.state.ribbonSpeeds,
+      ),
+      width: Math.max(component.state.width, 520),
+      height: Math.max(component.state.height, 240),
+      text: component.state.text || defaultTextFor(component.state.type ?? component.type),
+    },
+  }));
+}
+
+function makeSlice(type: ComponentType): CanvasSlice {
+  const registry = hydrateRegistry(createInitialRegistry(type));
+  syncRegistryIds(registry);
+  return {
+    registry,
+    groups: {},
+    selectedComponentIds: registry[0] ? [registry[0].id] : [],
+    activeComponentId: registry[0]?.id ?? null,
+    lastCreatedComponentIds: [],
+    lastModifiedComponentIds: [],
+    lastCreatedGroupId: null,
+    operationHistory: [],
+    zoom: 1,
+    showCode: false,
+  };
+}
+
+function readSlice(state: CanvasSlice): CanvasSlice {
+  return {
+    registry: state.registry,
+    groups: state.groups,
+    selectedComponentIds: state.selectedComponentIds,
+    activeComponentId: state.activeComponentId,
+    lastCreatedComponentIds: state.lastCreatedComponentIds,
+    lastModifiedComponentIds: state.lastModifiedComponentIds,
+    lastCreatedGroupId: state.lastCreatedGroupId,
+    operationHistory: state.operationHistory,
+    zoom: state.zoom,
+    showCode: state.showCode,
+  };
+}
+
+interface CanvasStore extends CanvasSlice {
+  activeSessionId: SessionId;
+  sessions: Partial<Record<SessionId, CanvasSlice>>;
+  setSession: (id: SessionId) => void;
   select: (ids: string[], additive?: boolean) => void;
   clearSelection: () => void;
   togglePermission: (id: string, key: keyof AttributePermissions) => void;
@@ -55,46 +101,42 @@ interface CanvasStore {
   reset: () => void;
 }
 
-function persist(state: Pick<
-  CanvasStore,
-  | "registry"
-  | "groups"
-  | "selectedComponentIds"
-  | "activeComponentId"
-  | "lastCreatedComponentIds"
-  | "lastModifiedComponentIds"
-  | "lastCreatedGroupId"
-  | "operationHistory"
-  | "zoom"
-  | "showCode"
->) {
+function persist(state: {
+  activeSessionId: SessionId;
+  sessions: Partial<Record<SessionId, CanvasSlice>>;
+} & CanvasSlice) {
+  const sessions = {
+    ...state.sessions,
+    [state.activeSessionId]: readSlice(state),
+  };
   localStorage.setItem(
     STORAGE_KEY,
     JSON.stringify({
-      registry: state.registry,
-      groups: state.groups,
-      selectedComponentIds: state.selectedComponentIds,
-      activeComponentId: state.activeComponentId,
-      lastCreatedComponentIds: state.lastCreatedComponentIds,
-      lastModifiedComponentIds: state.lastModifiedComponentIds,
-      lastCreatedGroupId: state.lastCreatedGroupId,
-      operationHistory: state.operationHistory,
-      zoom: state.zoom,
-      showCode: state.showCode,
+      activeSessionId: state.activeSessionId,
+      sessions,
     }),
   );
 }
 
-function loadPersisted() {
+function loadPersisted(): { activeSessionId: SessionId; slice: CanvasSlice; sessions: Partial<Record<SessionId, CanvasSlice>> } | null {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
-    const parsed = JSON.parse(raw) as Partial<CanvasStore>;
-    if (!parsed.registry?.length) return null;
-    syncRegistryIds(parsed.registry, Object.keys(parsed.groups ?? {}));
+    const parsed = JSON.parse(raw) as {
+      activeSessionId?: SessionId;
+      sessions?: Partial<Record<SessionId, CanvasSlice>>;
+    };
+    const activeSessionId = isSessionId(parsed.activeSessionId ?? "")
+      ? parsed.activeSessionId!
+      : "strands";
+    const sessions = parsed.sessions ?? {};
+    const slice = sessions[activeSessionId];
+    if (!slice?.registry?.length) return null;
+    syncRegistryIds(slice.registry, Object.keys(slice.groups ?? {}));
     return {
-      ...parsed,
-      registry: hydrateRegistry(parsed.registry),
+      activeSessionId,
+      sessions,
+      slice: { ...slice, registry: hydrateRegistry(slice.registry) },
     };
   } catch {
     return null;
@@ -102,29 +144,32 @@ function loadPersisted() {
 }
 
 const persisted = typeof localStorage !== "undefined" ? loadPersisted() : null;
-const initialRegistry = persisted?.registry ?? createInitialRegistry();
+const initial = persisted?.slice ?? makeSlice("strand");
 
 export const useCanvasStore = create<CanvasStore>((set, get) => ({
-  registry: initialRegistry,
-  groups: persisted?.groups ?? {},
-  selectedComponentIds: persisted?.selectedComponentIds ?? (initialRegistry[0] ? [initialRegistry[0].id] : []),
-  activeComponentId: persisted?.activeComponentId ?? initialRegistry[0]?.id ?? null,
-  lastCreatedComponentIds: persisted?.lastCreatedComponentIds ?? [],
-  lastModifiedComponentIds: persisted?.lastModifiedComponentIds ?? [],
-  lastCreatedGroupId: persisted?.lastCreatedGroupId ?? null,
-  operationHistory: persisted?.operationHistory ?? [],
-  zoom: persisted?.zoom ?? 1,
-  showCode: persisted?.showCode ?? false,
+  activeSessionId: persisted?.activeSessionId ?? "strands",
+  sessions: persisted?.sessions ?? {},
+  ...initial,
+
+  setSession: (id) => {
+    set((state) => {
+      const sessions = { ...state.sessions, [state.activeSessionId]: readSlice(state) };
+      const nextSlice = sessions[id] ?? makeSlice(sessionById(id).type);
+      syncRegistryIds(nextSlice.registry, Object.keys(nextSlice.groups ?? {}));
+      const next = {
+        activeSessionId: id,
+        sessions,
+        ...nextSlice,
+      };
+      persist(next);
+      return next;
+    });
+  },
 
   select: (ids, additive = false) => {
     set((state) => {
-      const nextIds = additive
-        ? [...new Set([...state.selectedComponentIds, ...ids])]
-        : ids;
-      const next = {
-        selectedComponentIds: nextIds,
-        activeComponentId: nextIds[0] ?? null,
-      };
+      const nextIds = additive ? [...new Set([...state.selectedComponentIds, ...ids])] : ids;
+      const next = { selectedComponentIds: nextIds, activeComponentId: nextIds[0] ?? null };
       persist({ ...state, ...next });
       return next;
     });
@@ -151,9 +196,8 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
             }
           : component,
       );
-      const next = { registry };
-      persist({ ...state, ...next });
-      return next;
+      persist({ ...state, registry });
+      return { registry };
     });
   },
 
@@ -229,7 +273,6 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
     const current = get();
     const entry = current.operationHistory.at(-1);
     if (!entry) return false;
-
     const restored = applyUndo(current.registry, current.groups, entry);
     set((state) => {
       const next = {
@@ -248,20 +291,14 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
   },
 
   reset: () => {
-    const registry = createInitialRegistry();
-    const next = {
-      registry,
-      groups: {},
-      selectedComponentIds: [registry[0].id],
-      activeComponentId: registry[0].id,
-      lastCreatedComponentIds: [],
-      lastModifiedComponentIds: [],
-      lastCreatedGroupId: null,
-      operationHistory: [],
-      zoom: 1,
-      showCode: false,
-    };
-    persist(next);
-    set(next);
+    const type = sessionById(get().activeSessionId).type;
+    const slice = makeSlice(type);
+    set((state) => {
+      const next = { ...state, ...slice };
+      persist(next);
+      return slice;
+    });
   },
 }));
+
+export const sessionList = SESSIONS;

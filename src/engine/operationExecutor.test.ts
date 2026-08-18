@@ -272,6 +272,18 @@ describe("operation engine", () => {
     expect(result.state.registry[0].state.colors).toHaveLength(3);
   });
 
+  it("changes ascii text instead of duplicating", () => {
+    resetIdCounters({ ascii: 1, group: 0 });
+    const registry = createInitialRegistry("ascii");
+    const operations = inferFallbackOperations("change the ascii text to monjeky", registry);
+    expect(operations).toEqual([
+      { type: "set_text", targetIds: ["ascii_1"], text: "monjeky" },
+    ]);
+    const result = executeOperation(operations[0], { registry, groups: {} });
+    expect(result.state.registry).toHaveLength(1);
+    expect(result.state.registry[0].state.text).toBe("monjeky");
+  });
+
   it("keeps valid operations when the model wraps JSON or adds a bad op", () => {
     const parsed = parseAiResponse(`Sure.
 \`\`\`json

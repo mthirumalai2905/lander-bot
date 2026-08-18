@@ -22,6 +22,7 @@ export function buildModelMessages(args: {
   }));
 
   const canvasContext = {
+    sessionType: args.registry[0]?.type ?? "strand",
     components: args.registry.map((component) => ({
       id: component.id,
       type: component.type,
@@ -37,6 +38,7 @@ export function buildModelMessages(args: {
         opacity: component.state.opacity,
         width: component.state.width,
         height: component.state.height,
+        text: component.state.text || null,
         colors: component.state.colors,
         ribbonCount: component.state.colors.length,
         ribbonSpeeds: component.state.ribbonSpeeds ?? component.state.colors.map(() => 1),

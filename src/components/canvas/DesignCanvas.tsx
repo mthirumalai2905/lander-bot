@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { sessionById } from "../../sessions/catalog";
 import { useThemeStore } from "../../store/themeStore";
 import { useCanvasStore } from "../../store/canvasStore";
 import { CodeViewer } from "./CodeViewer";
@@ -19,6 +20,7 @@ export function DesignCanvas() {
   const showCode = useCanvasStore((state) => state.showCode);
   const setShowCode = useCanvasStore((state) => state.setShowCode);
   const theme = useThemeStore((state) => state.theme);
+  const session = sessionById(useCanvasStore((state) => state.activeSessionId));
   const [erasing, setErasing] = useState(false);
   const active = registry.find((component) => selectedComponentIds.includes(component.id));
 
@@ -38,10 +40,10 @@ export function DesignCanvas() {
       <div className="flex items-center justify-between px-6 py-3">
         <div>
           <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-[var(--dim)]">
-            Canvas
+            {session.title}
           </p>
           <p className="text-[13px] text-[var(--muted)]">
-            {registry.length} component{registry.length === 1 ? "" : "s"}
+            {session.blurb} · {registry.length} instance{registry.length === 1 ? "" : "s"}
           </p>
         </div>
         <div className="flex items-center gap-2">

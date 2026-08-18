@@ -1,18 +1,19 @@
 import {
   ORIGINAL_PERMISSIONS,
-  createStrandState,
+  createComponentState,
+  type ComponentType,
   type DesignComponent,
 } from "../types/component";
 import { nextId, resetIdCounters, syncIdCounter } from "../utils/ids";
 
-export function createInitialRegistry(): DesignComponent[] {
-  resetIdCounters({ strand: 1, group: 0 });
-  const id = "strand_1";
+export function createInitialRegistry(type: ComponentType = "strand"): DesignComponent[] {
+  resetIdCounters({ [type]: 1, group: 0 });
+  const id = `${type}_1`;
   return [
     {
       id,
-      type: "strand",
-      state: createStrandState(id),
+      type,
+      state: createComponentState(type, id),
       permissions: { ...ORIGINAL_PERMISSIONS },
       protected: false,
     },
@@ -31,15 +32,18 @@ export function cloneRegistry(registry: DesignComponent[]): DesignComponent[] {
 }
 
 export function syncRegistryIds(registry: DesignComponent[], groupIds: string[] = []): void {
-  syncIdCounter(
-    "strand",
-    registry.map((component) => component.id),
-  );
+  const prefixes = new Set(registry.map((component) => component.id.split("_")[0]));
+  for (const prefix of prefixes) {
+    syncIdCounter(
+      prefix,
+      registry.filter((component) => component.id.startsWith(`${prefix}_`)).map((component) => component.id),
+    );
+  }
   syncIdCounter("group", groupIds);
 }
 
-export function createDuplicateId(): string {
-  return nextId("strand");
+export function createDuplicateId(type: ComponentType = "strand"): string {
+  return nextId(type);
 }
 
 export function createGroupId(): string {

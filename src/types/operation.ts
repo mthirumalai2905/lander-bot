@@ -31,6 +31,7 @@ export interface CopySpec {
   width?: number;
   height?: number;
   ribbonSpeeds?: number[];
+  text?: string;
 }
 
 export interface MoveOperation {
@@ -131,6 +132,12 @@ export interface SetSpeedOperation {
   relative?: boolean;
 }
 
+export interface SetTextOperation {
+  type: "set_text";
+  targetIds: string[];
+  text: string;
+}
+
 export type Operation =
   | MoveOperation
   | ScaleOperation
@@ -144,7 +151,8 @@ export type Operation =
   | ProtectOperation
   | AddRibbonOperation
   | RemoveRibbonOperation
-  | SetSpeedOperation;
+  | SetSpeedOperation
+  | SetTextOperation;
 
 export interface AppliedChange {
   ok: boolean;

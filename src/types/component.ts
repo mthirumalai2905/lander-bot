@@ -1,4 +1,15 @@
-export type ComponentType = "strand";
+export type ComponentType =
+  | "strand"
+  | "lightning"
+  | "aurora"
+  | "particles"
+  | "beams"
+  | "plasma"
+  | "threads"
+  | "animated"
+  | "antigravity"
+  | "ascii"
+  | "evileye";
 
 export interface ComponentState {
   id: string;
@@ -16,6 +27,7 @@ export interface ComponentState {
   visible: boolean;
   flipX: boolean;
   flipY: boolean;
+  text: string;
 }
 
 export interface AttributePermissions {
@@ -70,13 +82,51 @@ export const ORIGINAL_PERMISSIONS: AttributePermissions = {
   animation: true,
 };
 
-export function createStrandState(
+const DEFAULTS: Record<ComponentType, Partial<ComponentState>> = {
+  strand: {
+    colors: ["#F97316", "#7C3AED", "#06B6D4"],
+  },
+  lightning: {
+    colors: ["#93C5FD", "#38BDF8", "#E0F2FE"],
+  },
+  aurora: {
+    colors: ["#22C55E", "#06B6D4", "#8B5CF6"],
+  },
+  particles: {
+    colors: ["#F97316", "#F43F5E", "#FBBF24"],
+  },
+  beams: {
+    colors: ["#38BDF8", "#A78BFA", "#F472B6"],
+  },
+  plasma: {
+    colors: ["#EC4899", "#8B5CF6", "#22D3EE"],
+  },
+  threads: {
+    colors: ["#A78BFA", "#C4B5FD", "#FFFFFF"],
+  },
+  animated: {
+    colors: ["#E5E7EB", "#F8FAFC", "#CBD5E1"],
+    text: "Animate Me",
+  },
+  antigravity: {
+    colors: ["#FFFFFF", "#E5E7EB", "#CBD5E1"],
+  },
+  ascii: {
+    colors: ["#FFFFFF", "#22D3EE", "#F472B6"],
+    text: "ASCII",
+  },
+  evileye: {
+    colors: ["#FFF7ED", "#F59E0B", "#EF4444"],
+  },
+};
+
+export function createComponentState(
+  type: ComponentType,
   id: string,
   overrides: Partial<ComponentState> = {},
 ): ComponentState {
+  const { type: _type, id: _id, ...rest } = overrides;
   return {
-    id,
-    type: "strand",
     x: 72,
     y: 88,
     scale: 1,
@@ -84,12 +134,24 @@ export function createStrandState(
     opacity: 1,
     width: 560,
     height: 280,
-    colors: ["#F97316", "#7C3AED", "#06B6D4"],
+    colors: DEFAULTS[type].colors ?? ["#F97316", "#7C3AED", "#06B6D4"],
     ribbonSpeeds: [1, 1, 1],
     blur: 0,
     visible: true,
     flipX: false,
     flipY: false,
-    ...overrides,
+    text: DEFAULTS[type].text ?? "",
+    ...rest,
+    type,
+    id,
   };
 }
+
+export function defaultTextFor(type: ComponentType): string {
+  return DEFAULTS[type].text ?? "";
+}
+
+export const createStrandState = (
+  id: string,
+  overrides: Partial<ComponentState> = {},
+): ComponentState => createComponentState("strand", id, overrides);

@@ -31,7 +31,7 @@ function resolveTargets(
   if (/\b(all copies|all the copies|all five|all new copies)\b/.test(text)) {
     return map.aliases.copies?.length ? map.aliases.copies : map.copies;
   }
-  if (/\b(main|original|first strand|strand_1)\b/.test(text) && !/\b(copy|copies|duplicate)\b/.test(text)) {
+  if (/\b(main|original|first (strand|one|component)|strand_1|aurora_1|particles_1|beams_1|plasma_1|threads_1|animated_1|antigravity_1|ascii_1|evileye_1)\b/.test(text) && !/\b(copy|copies|duplicate)\b/.test(text)) {
     return map.originalId ? [map.originalId] : [];
   }
   const ordinal = text.match(/\b(second|third|fourth|fifth|2nd|3rd|4th|5th)\b/);
@@ -44,7 +44,7 @@ function resolveTargets(
     if (pool[index]) return [pool[index]];
     if (registry[index]) return [registry[index].id];
   }
-  if (/\b(the copy|this copy|that copy|strand_2)\b/.test(text)) {
+  if (/\b(the copy|this copy|that copy|strand_2|aurora_2|particles_2|beams_2|plasma_2|threads_2|animated_2|antigravity_2|ascii_2|evileye_2)\b/.test(text)) {
     return map.aliases.copy?.length ? map.aliases.copy : map.copies.slice(0, 1);
   }
   if (map.selectedIds.length) return map.selectedIds;
@@ -80,6 +80,32 @@ function isChatOnly(userMessage: string): boolean {
   return /^(hi|hello|hey|thanks|thank you|ok|okay|cool|nice|yo)\b/i.test(userMessage.trim());
 }
 
+function mentionedText(userMessage: string): string | null {
+  const quoted = userMessage.match(/[“"]([^”"]+)[”"]|'([^']+)'/);
+  if (quoted) {
+    const value = (quoted[1] ?? quoted[2]).trim();
+    if (value) return value.slice(0, 48);
+  }
+
+  const hasTextNoun =
+    /\b(text|ascii|label|word|words|title|phrase|name)\b/i.test(userMessage) ||
+    /\b(say|says|read|reads|rename)\b/i.test(userMessage);
+  if (!hasTextNoun) return null;
+
+  const afterTo = userMessage.match(
+    /\b(?:change|set|update|rename|make|cange|chage)\b[\s\S]*?\b(?:to|as|into)\s+(.+)$/i,
+  );
+  const afterSay = userMessage.match(/\b(?:say|says|read|reads)\s+(.+)$/i);
+  const raw = (afterTo?.[1] ?? afterSay?.[1] ?? "").trim();
+  if (!raw) return null;
+
+  return raw
+    .replace(/^["'“”]|["'“”]$/g, "")
+    .replace(/[.!?]+$/, "")
+    .trim()
+    .slice(0, 48);
+}
+
 export function inferFallbackOperations(
   userMessage: string,
   registry: DesignComponent[],
@@ -102,14 +128,33 @@ export function inferFallbackOperations(
     operations.push({ type: "protect", targetIds: [original.id], protected: true });
   }
 
-  const copyCount = text.match(/\b(\d+)\s+(copies|duplicates|strands|components)\b/);
+  const nextLabel = mentionedText(userMessage);
+  if (nextLabel) {
+    operations.push({
+      type: "set_text",
+      targetIds: targets.length ? targets : [original.id],
+      text: nextLabel,
+    });
+    return operations;
+  }
+
+  const copyCount = text.match(
+    /\b(\d+)\s+(copies|duplicates|strands|components|auroras?|particles?|beams?|plasmas?|threads?|animated|antigravity|ascii|eyes?)\b/,
+  );
   const ribbonCount = text.match(/\b(\d+)\s+ribbons?\b/);
   const wantsAnother =
-    /\b(one more|another|new)\b.*\b(component|strand|copy|animation)\b/i.test(userMessage) ||
-    /\b(duplicate|copy|create|make)\b.*\b(component|strand|copy|animation)\b/i.test(userMessage) ||
+    /\b(one more|another|new)\b.*\b(component|strand|copy|animation|aurora|particle|beam|plasma|thread|animated|antigravity|ascii|eye)\b/i.test(
+      userMessage,
+    ) ||
+    /\b(duplicate|copy|create|make)\b.*\b(component|strand|copy|animation|aurora|particle|beam|plasma|thread|animated|antigravity|ascii|eye)\b/i.test(
+      userMessage,
+    ) ||
     /\b(duplicate|copy) (it|this|that|the)\b/i.test(userMessage) ||
     Boolean(copyCount) ||
-    (Boolean(ribbonCount) && /\b(component|strand|another|one more|new)\b/i.test(userMessage));
+    (Boolean(ribbonCount) &&
+      /\b(component|strand|aurora|particle|beam|plasma|thread|animated|antigravity|ascii|eye|another|one more|new)\b/i.test(
+        userMessage,
+      ));
 
   if (wantsAnother) {
     const componentCount = copyCount ? Number(copyCount[1]) : 1;
@@ -235,6 +280,10 @@ export function inferFallbackOperations(
     return operations;
   }
 
+  if (/\b(text|ascii|say|rename|label|word)\b/i.test(userMessage)) {
+    return operations;
+  }
+
   operations.push({
     type: "duplicate",
     sourceId: original.id,
@@ -273,13 +322,14 @@ export function fallbackMessage(operations: Operation[]): string {
   const first = operations[0];
   if (!first) return "Done.";
   if (first.type === "duplicate" || first.type === "batch_duplicate") {
-    return "Created a new strand with that setup.";
+    return "Created a new instance with that setup.";
   }
   if (first.type === "add_ribbon") return "Added the ribbon.";
   if (first.type === "set_speed") return "Updated the ribbon speed.";
   if (first.type === "recolor") return "Updated the colors.";
-  if (first.type === "rotate") return "Rotated the strand.";
-  if (first.type === "scale") return "Resized the strand.";
+  if (first.type === "rotate") return "Rotated it.";
+  if (first.type === "scale") return "Resized it.";
   if (first.type === "delete") return "Removed the copy.";
+  if (first.type === "set_text") return `Changed the text to ${first.text}.`;
   return "Applied that change.";
 }

@@ -62,6 +62,7 @@ function applyCopyOverrides(
     width: spec?.width ?? source.width,
     height: spec?.height ?? heightForRibbonCount(colors.length, source.height),
     visible: true,
+    text: spec?.text ?? source.text,
   };
 
   const position = positionFromSpec(source, next, spec?.position, index);
@@ -95,7 +96,7 @@ function duplicateFrom(
   const memberIds: string[] = [];
 
   for (let index = 0; index < count; index += 1) {
-    const id = createDuplicateId();
+    const id = createDuplicateId(source.type);
     const spec = copies[index] ?? copies[0] ?? {};
     const nextState = applyCopyOverrides(source.state, spec, index);
     nextState.id = id;
@@ -416,6 +417,34 @@ export function executeOperation(operation: Operation, current: EngineState): Ex
             },
           };
         });
+      }
+      return {
+        ok: true,
+        state: { ...state, registry },
+        createdIds: [],
+        deletedIds: [],
+        modifiedIds: [...operation.targetIds],
+      };
+    }
+
+    case "set_text": {
+      const nextText = operation.text.trim().slice(0, 48);
+      if (!nextText) {
+        return {
+          ok: false,
+          state: current,
+          createdIds: [],
+          deletedIds: [],
+          modifiedIds: [],
+          error: "I need some text to put on the component.",
+        };
+      }
+      let registry = state.registry;
+      for (const targetId of operation.targetIds) {
+        registry = updateComponent(registry, targetId, (item) => ({
+          ...item,
+          state: { ...item.state, text: nextText },
+        }));
       }
       return {
         ok: true,

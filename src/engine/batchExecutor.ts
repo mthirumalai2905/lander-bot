@@ -52,6 +52,8 @@ function summarize(operation: Operation, createdIds: string[]): string {
         return `Changed ribbon ${operation.ribbonIndex} speed`;
       }
       return operation.relative ? "Adjusted animation speed" : "Updated animation speed";
+    case "set_text":
+      return `Changed the text to ${operation.text}`;
   }
 }
 

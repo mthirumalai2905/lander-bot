@@ -1,6 +1,6 @@
 import { motion } from "motion/react";
 import type { DesignComponent } from "../../types/component";
-import { Strand } from "./Strand";
+import { SessionVisual } from "./SessionVisual";
 
 interface ComponentWrapperProps {
   component: DesignComponent;
@@ -57,7 +57,7 @@ export function ComponentWrapper({
               : "shadow-[0_0_0_1px_transparent]"
         }`}
       >
-        <Strand state={state} />
+        <SessionVisual state={state} />
       </div>
       {(selected || erasing) && (
         <div className="absolute -top-6 left-2 font-mono text-[11px] tracking-wide text-[var(--muted)]">

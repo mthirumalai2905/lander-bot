@@ -3,9 +3,14 @@ import { useState, type KeyboardEvent } from "react";
 interface ChatInputProps {
   disabled: boolean;
   onSend: (value: string) => void;
+  placeholder?: string;
 }
 
-export function ChatInput({ disabled, onSend }: ChatInputProps) {
+export function ChatInput({
+  disabled,
+  onSend,
+  placeholder = "Type your command...",
+}: ChatInputProps) {
   const [value, setValue] = useState("");
 
   const submit = () => {
@@ -31,7 +36,7 @@ export function ChatInput({ disabled, onSend }: ChatInputProps) {
           onKeyDown={onKeyDown}
           disabled={disabled}
           rows={3}
-          placeholder="Type your command..."
+          placeholder={placeholder}
           className="w-full resize-none bg-transparent px-2 py-1.5 text-[14px] leading-6 text-[var(--text)] outline-none placeholder:text-[var(--dim)] disabled:opacity-60"
         />
         <div className="flex items-center justify-between px-2 pb-1">

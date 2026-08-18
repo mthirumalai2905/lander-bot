@@ -34,6 +34,7 @@ export const copySpecSchema = z.object({
   width: z.number().positive().optional(),
   height: z.number().positive().optional(),
   ribbonSpeeds: z.array(z.number().positive()).optional(),
+  text: z.string().min(1).max(48).optional(),
 });
 
 export const moveOperationSchema = z.object({
@@ -141,6 +142,12 @@ export const setSpeedOperationSchema = z.object({
   relative: z.boolean().optional(),
 });
 
+export const setTextOperationSchema = z.object({
+  type: z.literal("set_text"),
+  targetIds: z.array(z.string()).min(1),
+  text: z.string().min(1).max(48),
+});
+
 export const operationSchema = z.discriminatedUnion("type", [
   moveOperationSchema,
   scaleOperationSchema,
@@ -155,6 +162,7 @@ export const operationSchema = z.discriminatedUnion("type", [
   addRibbonOperationSchema,
   removeRibbonOperationSchema,
   setSpeedOperationSchema,
+  setTextOperationSchema,
 ]);
 
 export const aiResponseSchema = z.object({

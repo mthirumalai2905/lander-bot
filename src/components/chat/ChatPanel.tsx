@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { requestLanderOperations } from "../../ai/deepseek";
 import { fallbackMessage, inferFallbackOperations } from "../../ai/intentFallback";
+import { sessionById } from "../../sessions/catalog";
 import { useCanvasStore } from "../../store/canvasStore";
 import { useChatStore } from "../../store/chatStore";
 import type { Operation } from "../../types/operation";
@@ -8,6 +9,7 @@ import { ChatInput } from "./ChatInput";
 import { ChatMessage } from "./ChatMessage";
 
 export function ChatPanel() {
+  const session = sessionById(useCanvasStore((state) => state.activeSessionId));
   const messages = useChatStore((state) => state.messages);
   const pending = useChatStore((state) => state.pending);
   const lastFailedUserMessage = useChatStore((state) => state.lastFailedUserMessage);
@@ -120,15 +122,18 @@ export function ChatPanel() {
   return (
     <aside className="flex h-full w-[380px] shrink-0 flex-col border-l border-[var(--border)] bg-[var(--chat)]">
       <header className="border-b border-[var(--border)] px-5 py-4">
-        <p className="text-[15px] font-medium tracking-[-0.02em] text-[var(--text)]">Lander Bot</p>
-        <p className="mt-0.5 text-[13px] text-[var(--muted)]">Your AI design assistant</p>
+        <p className="text-[15px] font-medium tracking-[-0.02em] text-[var(--text)]">
+          {session.title} chat
+        </p>
+        <p className="mt-0.5 text-[13px] text-[var(--muted)]">Play with this session only</p>
       </header>
 
       <div ref={scroller} className="min-h-0 flex-1 space-y-5 overflow-y-auto px-5 py-5">
         {messages.length === 0 && (
           <div className="rounded-2xl bg-[var(--panel)] px-4 py-3 text-[13px] leading-6 text-[var(--muted)]">
-            Ask for a duplicate, a recolor, a rotation, or a batch of copies. The original Strand
-            stays on the canvas until you change it.
+            This session is {session.title}. Duplicate it, recolor it
+            {session.type === "ascii" || session.type === "animated" ? ", or change the text" : ""},
+            speed it up, or add copies. The original stays unless you reset.
           </div>
         )}
         {messages.map((message) => (
@@ -180,7 +185,15 @@ export function ChatPanel() {
         </button>
       </div>
 
-      <ChatInput disabled={pending} onSend={(value) => void send(value)} />
+      <ChatInput
+        disabled={pending}
+        placeholder={
+          session.type === "ascii" || session.type === "animated"
+            ? "Try: change the text to hello"
+            : `Try: duplicate this ${session.title.toLowerCase()} in blue`
+        }
+        onSend={(value) => void send(value)}
+      />
     </aside>
   );
 }

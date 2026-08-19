@@ -1,6 +1,12 @@
 import type { ChatMessage, ConversationState } from "../types/conversation";
 import type { DesignComponent } from "../types/component";
+import type { Operation } from "../types/operation";
 import { buildModelMessages } from "./contextBuilder";
+import {
+  estimateUsageFromText,
+  normalizeDeepSeekUsage,
+  type TokenUsage,
+} from "./deepseekPricing";
 import {
   fallbackMessage,
   inferFallbackOperations,
@@ -15,6 +21,7 @@ function intentContext(
   registry: DesignComponent[],
   conversation: ConversationState,
   groups: Record<string, string[]>,
+  currentSource?: string,
 ): IntentContext {
   return {
     selectedComponentIds: conversation.selectedComponentIds,
@@ -22,6 +29,7 @@ function intentContext(
     lastModifiedComponentIds: conversation.lastModifiedComponentIds,
     lastCreatedGroupId: conversation.lastCreatedGroupId,
     groups,
+    currentSource,
   };
 }
 
@@ -30,11 +38,18 @@ export async function requestLanderOperations(args: {
   groups: Record<string, string[]>;
   conversation: ConversationState;
   userMessage: string;
-}) {
+  source?: string;
+}): Promise<{
+  message: string;
+  operations: Operation[];
+  appliedChanges?: string[];
+  protectIds?: string[];
+  usage?: TokenUsage;
+}> {
   const fallback = inferFallbackOperations(
     args.userMessage,
     args.registry,
-    intentContext(args.registry, args.conversation, args.groups),
+    intentContext(args.registry, args.conversation, args.groups, args.source),
   );
 
   const messages = buildModelMessages({
@@ -43,7 +58,10 @@ export async function requestLanderOperations(args: {
     groups: args.groups,
     conversation: args.conversation,
     userMessage: args.userMessage,
+    source: args.source,
   });
+
+  let usage: TokenUsage | undefined;
 
   try {
     const response = await fetch("/api/lander", {
@@ -55,7 +73,24 @@ export async function requestLanderOperations(args: {
     const payload = (await response.json()) as {
       content?: string;
       error?: string;
+      usage?: unknown;
     };
+    let headerUsage: TokenUsage | undefined;
+    try {
+      const header = response.headers.get("x-deepseek-usage");
+      headerUsage = header ? normalizeDeepSeekUsage(JSON.parse(header)) : undefined;
+    } catch {
+      headerUsage = undefined;
+    }
+    usage =
+      normalizeDeepSeekUsage(payload.usage) ??
+      headerUsage ??
+      (payload.content
+        ? estimateUsageFromText(
+            messages.map((message) => message.content).join("\n"),
+            payload.content,
+          )
+        : undefined);
 
     if (response.ok && payload.content) {
       const parsed = parseAiResponse(payload.content);
@@ -70,6 +105,28 @@ export async function requestLanderOperations(args: {
             operation.count > 1,
         );
         const wantsOneComponent = /\b(one more|another)\b/i.test(args.userMessage);
+        const shapeFallback = fallback.some((operation) => operation.type === "source_edit");
+        const aiEditedSource = operations.some((operation) => operation.type === "source_edit");
+        const fallbackIsCopy = fallback.some(
+          (operation) => operation.type === "duplicate" || operation.type === "batch_duplicate",
+        );
+        const aiCopied = operations.some(
+          (operation) => operation.type === "duplicate" || operation.type === "batch_duplicate",
+        );
+        if (shapeFallback && !aiEditedSource) {
+          return {
+            message: fallbackMessage(fallback),
+            operations: fallback,
+            usage,
+          };
+        }
+        if (fallbackIsCopy && !aiCopied) {
+          return {
+            message: fallbackMessage(fallback),
+            operations: fallback,
+            usage,
+          };
+        }
         if (fallback.length && (!operations.length || (wantsOneComponent && aiMadeManyCopies))) {
           operations = fallback;
         }
@@ -78,6 +135,7 @@ export async function requestLanderOperations(args: {
             ...parsed.data,
             message: parsed.data.operations.length ? parsed.data.message : fallbackMessage(operations),
             operations,
+            usage,
           };
         }
       }
@@ -90,12 +148,14 @@ export async function requestLanderOperations(args: {
     return {
       message: fallbackMessage(fallback),
       operations: fallback,
+      usage,
     };
   }
 
   return {
     message: "Tell me what to change on the canvas and I'll do it.",
     operations: [],
+    usage,
   };
 }
 

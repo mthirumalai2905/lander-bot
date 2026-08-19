@@ -54,6 +54,8 @@ function summarize(operation: Operation, createdIds: string[]): string {
       return operation.relative ? "Adjusted animation speed" : "Updated animation speed";
     case "set_text":
       return `Changed the text to ${operation.text}`;
+    case "source_edit":
+      return "Updated the live component source";
   }
 }
 

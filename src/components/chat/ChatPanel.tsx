@@ -4,6 +4,7 @@ import { fallbackMessage, inferFallbackOperations } from "../../ai/intentFallbac
 import { sessionById } from "../../sessions/catalog";
 import { useCanvasStore } from "../../store/canvasStore";
 import { useChatStore } from "../../store/chatStore";
+import { useUsageStore } from "../../store/usageStore";
 import type { Operation } from "../../types/operation";
 import { ChatInput } from "./ChatInput";
 import { ChatMessage } from "./ChatMessage";
@@ -31,6 +32,9 @@ export function ChatPanel() {
     setPending(true);
     setLastFailedUserMessage(null);
 
+    let spendChanges: string[] = [];
+    let spendUsage = undefined as Awaited<ReturnType<typeof requestLanderOperations>>["usage"];
+
     try {
       const canvas = useCanvasStore.getState();
       const chat = useChatStore.getState();
@@ -47,10 +51,34 @@ export function ChatPanel() {
           operationHistory: canvas.operationHistory,
         },
         userMessage: text,
+        source: canvas.source,
       });
+      spendUsage = response.usage;
 
-      const operations: Operation[] = [...response.operations];
-      if (response.protectIds?.length) {
+      const intent = {
+        selectedComponentIds: canvas.selectedComponentIds,
+        lastCreatedComponentIds: canvas.lastCreatedComponentIds,
+        lastModifiedComponentIds: canvas.lastModifiedComponentIds,
+        lastCreatedGroupId: canvas.lastCreatedGroupId,
+        groups: canvas.groups,
+        currentSource: canvas.source,
+      };
+      const shapeFallback = inferFallbackOperations(text, canvas.registry, intent);
+      const operations: Operation[] =
+        shapeFallback[0]?.type === "source_edit" &&
+        !response.operations.some((operation) => operation.type === "source_edit")
+          ? shapeFallback
+          : (shapeFallback[0]?.type === "duplicate" ||
+                shapeFallback[0]?.type === "batch_duplicate") &&
+              !response.operations.some(
+                (operation) =>
+                  operation.type === "duplicate" || operation.type === "batch_duplicate",
+              )
+            ? shapeFallback
+            : response.operations.length
+              ? [...response.operations]
+              : [...shapeFallback];
+      if (response.protectIds?.length && operations[0]?.type !== "source_edit") {
         operations.unshift({
           type: "protect",
           targetIds: response.protectIds,
@@ -59,6 +87,7 @@ export function ChatPanel() {
       }
 
       if (operations.length === 0) {
+        spendChanges = response.appliedChanges ?? [];
         addMessage({
           role: "assistant",
           content: response.message,
@@ -69,28 +98,32 @@ export function ChatPanel() {
 
       let result = canvas.applyOperations(operations);
       if (!result.ok) {
-        const fallback = inferFallbackOperations(text, canvas.registry, {
-          selectedComponentIds: canvas.selectedComponentIds,
-          lastCreatedComponentIds: canvas.lastCreatedComponentIds,
-          lastModifiedComponentIds: canvas.lastModifiedComponentIds,
-          lastCreatedGroupId: canvas.lastCreatedGroupId,
-          groups: canvas.groups,
-        });
+        const fallback = inferFallbackOperations(text, canvas.registry, intent);
         if (fallback.length) {
           result = canvas.applyOperations(fallback);
+          const appliedChanges = result.applied.map((item) => item.text);
+          spendChanges = appliedChanges;
           addMessage({
             role: "assistant",
             content: result.ok ? fallbackMessage(fallback) : "Applied the closest matching change.",
-            appliedChanges: result.applied.map((item) => item.text),
+            appliedChanges,
           });
           return;
         }
       }
 
+      const appliedChanges = result.applied.map((item) => item.text);
+      spendChanges = appliedChanges;
       addMessage({
         role: "assistant",
-        content: result.ok ? response.message : "Applied the closest matching change.",
-        appliedChanges: result.applied.map((item) => item.text),
+        content: result.ok
+          ? operations[0]?.type === "source_edit" ||
+            operations[0]?.type === "duplicate" ||
+            operations[0]?.type === "batch_duplicate"
+            ? fallbackMessage(operations)
+            : response.message
+          : "Applied the closest matching change.",
+        appliedChanges,
       });
     } catch {
       const canvas = useCanvasStore.getState();
@@ -100,6 +133,7 @@ export function ChatPanel() {
         lastModifiedComponentIds: canvas.lastModifiedComponentIds,
         lastCreatedGroupId: canvas.lastCreatedGroupId,
         groups: canvas.groups,
+        currentSource: canvas.source,
       });
       if (fallback.length) {
         const result = canvas.applyOperations(fallback);
@@ -115,6 +149,13 @@ export function ChatPanel() {
         content: "Tell me what to change and I'll do it on the canvas.",
       });
     } finally {
+      if (spendUsage) {
+        useUsageStore.getState().record({
+          task: text,
+          changes: spendChanges,
+          usage: spendUsage,
+        });
+      }
       setPending(false);
     }
   };
@@ -190,7 +231,7 @@ export function ChatPanel() {
         placeholder={
           session.type === "ascii" || session.type === "animated"
             ? "Try: change the text to hello"
-            : `Try: duplicate this ${session.title.toLowerCase()} in blue`
+            : "Try: turn this into a heart shape"
         }
         onSend={(value) => void send(value)}
       />

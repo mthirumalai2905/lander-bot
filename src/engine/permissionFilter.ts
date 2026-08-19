@@ -65,7 +65,7 @@ export function filterOperation(
     return { allowed: operation, errors: [] };
   }
 
-  if (operation.type === "protect") {
+  if (operation.type === "protect" || operation.type === "source_edit") {
     return { allowed: operation, errors: [] };
   }
 

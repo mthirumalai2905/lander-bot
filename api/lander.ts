@@ -35,5 +35,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return;
   }
 
-  res.status(200).json({ content: result.content });
+  if (result.usage) {
+    res.setHeader("x-deepseek-usage", JSON.stringify(result.usage));
+  }
+  res.status(200).json({
+    content: result.content,
+    usage: result.usage,
+    model: result.model,
+  });
 }

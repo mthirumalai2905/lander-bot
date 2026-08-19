@@ -138,6 +138,11 @@ export interface SetTextOperation {
   text: string;
 }
 
+export interface SourceEditOperation {
+  type: "source_edit";
+  source: string;
+}
+
 export type Operation =
   | MoveOperation
   | ScaleOperation
@@ -152,7 +157,8 @@ export type Operation =
   | AddRibbonOperation
   | RemoveRibbonOperation
   | SetSpeedOperation
-  | SetTextOperation;
+  | SetTextOperation
+  | SourceEditOperation;
 
 export interface AppliedChange {
   ok: boolean;

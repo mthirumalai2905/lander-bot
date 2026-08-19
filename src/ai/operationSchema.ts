@@ -148,6 +148,11 @@ export const setTextOperationSchema = z.object({
   text: z.string().min(1).max(48),
 });
 
+export const sourceEditOperationSchema = z.object({
+  type: z.literal("source_edit"),
+  source: z.string().min(1).max(12_000),
+});
+
 export const operationSchema = z.discriminatedUnion("type", [
   moveOperationSchema,
   scaleOperationSchema,
@@ -163,6 +168,7 @@ export const operationSchema = z.discriminatedUnion("type", [
   removeRibbonOperationSchema,
   setSpeedOperationSchema,
   setTextOperationSchema,
+  sourceEditOperationSchema,
 ]);
 
 export const aiResponseSchema = z.object({

@@ -2,7 +2,9 @@ import { create } from "zustand";
 import { createInitialRegistry, syncRegistryIds } from "../engine/componentRegistry";
 import { applyUndo } from "../engine/history";
 import { executeBatch } from "../engine/batchExecutor";
+import { defaultSourceFor } from "../sessions/defaultSource";
 import { SESSIONS, isSessionId, sessionById, type SessionId } from "../sessions/catalog";
+import { compileVisual } from "../runtime/compileVisual";
 import {
   defaultTextFor,
   type AttributePermissions,
@@ -24,9 +26,27 @@ export interface CanvasSlice {
   operationHistory: OperationHistoryEntry[];
   zoom: number;
   showCode: boolean;
+  source: string;
 }
 
 const STORAGE_KEY = "lander-bot-sessions-v1";
+
+function fitRegistryForSource(registry: DesignComponent[], source: string): DesignComponent[] {
+  if (!/shape="(heart|star|square|circle|ellipse|parabola|triangle|diamond|hexagon)"/.test(source)) {
+    return registry;
+  }
+  return registry.map((component) => {
+    const side = Math.max(component.state.width, component.state.height, 560);
+    return {
+      ...component,
+      state: {
+        ...component.state,
+        width: side,
+        height: side,
+      },
+    };
+  });
+}
 
 function hydrateRegistry(registry: DesignComponent[]): DesignComponent[] {
   return registry.map((component) => ({
@@ -63,6 +83,7 @@ function makeSlice(type: ComponentType): CanvasSlice {
     operationHistory: [],
     zoom: 1,
     showCode: false,
+    source: defaultSourceFor(type),
   };
 }
 
@@ -78,6 +99,7 @@ function readSlice(state: CanvasSlice): CanvasSlice {
     operationHistory: state.operationHistory,
     zoom: state.zoom,
     showCode: state.showCode,
+    source: state.source || defaultSourceFor(state.registry[0]?.type ?? "strand"),
   };
 }
 
@@ -133,10 +155,18 @@ function loadPersisted(): { activeSessionId: SessionId; slice: CanvasSlice; sess
     const slice = sessions[activeSessionId];
     if (!slice?.registry?.length) return null;
     syncRegistryIds(slice.registry, Object.keys(slice.groups ?? {}));
+    const type = slice.registry[0]?.type ?? "strand";
     return {
       activeSessionId,
       sessions,
-      slice: { ...slice, registry: hydrateRegistry(slice.registry) },
+      slice: {
+        ...slice,
+        source: slice.source || defaultSourceFor(type),
+        registry: fitRegistryForSource(
+          hydrateRegistry(slice.registry),
+          slice.source || defaultSourceFor(type),
+        ),
+      },
     };
   } catch {
     return null;
@@ -218,6 +248,22 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
 
   applyOperations: (operations) => {
     const current = get();
+    const sourceEdit = operations.find((operation) => operation.type === "source_edit");
+    let nextSource = current.source;
+    if (sourceEdit?.type === "source_edit") {
+      const compiled = compileVisual(sourceEdit.source);
+      if (!compiled.ok) {
+        return {
+          ok: false,
+          applied: [{ ok: false, text: compiled.error }],
+          createdIds: [],
+          modifiedIds: [],
+          message: compiled.error,
+        };
+      }
+      nextSource = sourceEdit.source;
+    }
+
     const result = executeBatch(operations, {
       registry: current.registry,
       groups: current.groups,
@@ -240,7 +286,7 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
 
     set((state) => {
       const next = {
-        registry: result.state.registry,
+        registry: fitRegistryForSource(result.state.registry, nextSource),
         groups: result.state.groups,
         lastCreatedComponentIds: result.createdIds.length
           ? result.createdIds
@@ -249,7 +295,15 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
           ? result.modifiedIds
           : result.createdIds,
         lastCreatedGroupId,
-        operationHistory: [...state.operationHistory, result.historyEntry!],
+        source: nextSource,
+        operationHistory: [
+          ...state.operationHistory,
+          {
+            ...result.historyEntry!,
+            previousSource: current.source,
+            nextSource,
+          },
+        ],
         selectedComponentIds: result.createdIds.length
           ? result.createdIds.slice(0, 1)
           : result.modifiedIds.length
@@ -278,6 +332,7 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
       const next = {
         registry: restored.registry,
         groups: restored.groups,
+        source: entry.previousSource ?? state.source,
         operationHistory: state.operationHistory.slice(0, -1),
         lastCreatedComponentIds: [],
         lastModifiedComponentIds: [],

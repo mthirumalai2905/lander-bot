@@ -1,9 +1,23 @@
+import { extractDeepSeekUsage } from "../src/ai/deepseekPricing";
+
+export type DeepSeekUsage = {
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  total_tokens?: number;
+  prompt_cache_hit_tokens?: number;
+  prompt_cache_miss_tokens?: number;
+};
+
 export async function completeLanderChat(args: {
   apiKey: string;
   baseUrl?: string;
   messages: { role: string; content: string }[];
-}): Promise<{ ok: true; content: string } | { ok: false; status: number; error: string }> {
+}): Promise<
+  | { ok: true; content: string; usage?: DeepSeekUsage; model: string }
+  | { ok: false; status: number; error: string }
+> {
   const baseUrl = (args.baseUrl || "https://api.deepseek.com").replace(/\/$/, "");
+  const model = "deepseek-chat";
 
   const response = await fetch(`${baseUrl}/chat/completions`, {
     method: "POST",
@@ -12,7 +26,7 @@ export async function completeLanderChat(args: {
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model: "deepseek-chat",
+      model,
       messages: args.messages,
       response_format: { type: "json_object" },
       temperature: 0.2,
@@ -21,6 +35,7 @@ export async function completeLanderChat(args: {
 
   const data = (await response.json()) as {
     choices?: { message?: { content?: string } }[];
+    usage?: unknown;
     error?: { message?: string };
   };
 
@@ -41,5 +56,5 @@ export async function completeLanderChat(args: {
     };
   }
 
-  return { ok: true, content };
+  return { ok: true, content, usage: extractDeepSeekUsage(data.usage), model };
 }

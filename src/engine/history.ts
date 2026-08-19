@@ -36,6 +36,8 @@ export function createHistoryEntry(args: {
   deletedIds: string[];
   previousGroups: Record<string, string[]>;
   nextGroups: Record<string, string[]>;
+  previousSource?: string;
+  nextSource?: string;
 }): OperationHistoryEntry {
   const affected = [
     ...args.createdIds,
@@ -56,6 +58,8 @@ export function createHistoryEntry(args: {
     nextProtected: captureProtected(args.next, affected),
     previousGroups: structuredClone(args.previousGroups),
     nextGroups: structuredClone(args.nextGroups),
+    previousSource: args.previousSource,
+    nextSource: args.nextSource,
   };
 }
 

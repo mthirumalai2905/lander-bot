@@ -1,6 +1,7 @@
 import { motion } from "motion/react";
 import type { DesignComponent } from "../../types/component";
-import { SessionVisual } from "./SessionVisual";
+import { useCanvasStore } from "../../store/canvasStore";
+import { LiveVisual } from "./LiveVisual";
 
 interface ComponentWrapperProps {
   component: DesignComponent;
@@ -20,6 +21,11 @@ export function ComponentWrapper({
   onErase,
 }: ComponentWrapperProps) {
   const { state } = component;
+  const source = useCanvasStore((store) => store.source ?? "");
+  const shaped = /shape="(heart|star|square|circle|ellipse|parabola|triangle|diamond|hexagon)"/.test(source);
+  const side = Math.max(state.width, state.height, 560);
+  const width = shaped ? side : state.width;
+  const height = shaped ? side : state.height;
 
   if (!state.visible) return null;
 
@@ -29,7 +35,7 @@ export function ComponentWrapper({
       className={`absolute left-0 top-0 origin-center border-0 bg-transparent p-0 text-left ${
         erasing ? (erasable ? "cursor-cell" : "cursor-not-allowed") : "cursor-pointer"
       }`}
-      style={{ width: state.width, height: state.height }}
+      style={{ width, height }}
       animate={{
         x: state.x,
         y: state.y,
@@ -49,7 +55,7 @@ export function ComponentWrapper({
       }}
     >
       <div
-        className={`rounded-[20px] p-2 transition-shadow ${
+        className={`overflow-visible rounded-[20px] p-2 transition-shadow ${
           erasing && erasable
             ? "shadow-[0_0_0_1.5px_rgba(239,68,68,0.7),0_10px_36px_var(--shadow)]"
             : selected
@@ -57,7 +63,7 @@ export function ComponentWrapper({
               : "shadow-[0_0_0_1px_transparent]"
         }`}
       >
-        <SessionVisual state={state} />
+        <LiveVisual state={{ ...state, width, height }} />
       </div>
       {(selected || erasing) && (
         <div className="absolute -top-6 left-2 font-mono text-[11px] tracking-wide text-[var(--muted)]">

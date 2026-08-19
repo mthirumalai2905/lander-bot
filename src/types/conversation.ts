@@ -25,6 +25,8 @@ export interface OperationHistoryEntry {
   nextProtected: Record<string, boolean>;
   previousGroups: Record<string, string[]>;
   nextGroups: Record<string, string[]>;
+  previousSource?: string;
+  nextSource?: string;
 }
 
 export interface ConversationState {

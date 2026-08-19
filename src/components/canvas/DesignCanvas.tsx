@@ -2,8 +2,11 @@ import { useState } from "react";
 import { sessionById } from "../../sessions/catalog";
 import { useThemeStore } from "../../store/themeStore";
 import { useCanvasStore } from "../../store/canvasStore";
+import { formatUsd } from "../../ai/deepseekPricing";
+import { usageTotals, useUsageStore } from "../../store/usageStore";
 import { CodeViewer } from "./CodeViewer";
 import { ComponentWrapper } from "./ComponentWrapper";
+import { UsageViewer } from "./UsageViewer";
 
 function isErasable(createdFrom?: string, canDelete?: boolean, isProtected?: boolean) {
   return Boolean(createdFrom) && canDelete !== false && !isProtected;
@@ -22,6 +25,9 @@ export function DesignCanvas() {
   const theme = useThemeStore((state) => state.theme);
   const session = sessionById(useCanvasStore((state) => state.activeSessionId));
   const [erasing, setErasing] = useState(false);
+  const [showUsage, setShowUsage] = useState(false);
+  const usageEntries = useUsageStore((state) => state.entries);
+  const spend = usageTotals(usageEntries);
   const active = registry.find((component) => selectedComponentIds.includes(component.id));
 
   const eraseIds = (ids: string[]) => {
@@ -46,7 +52,7 @@ export function DesignCanvas() {
             {session.blurb} · {registry.length} instance{registry.length === 1 ? "" : "s"}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="relative flex items-center gap-2">
           <button
             type="button"
             onClick={() => {
@@ -66,11 +72,30 @@ export function DesignCanvas() {
           </button>
           <button
             type="button"
-            onClick={() => setShowCode(!showCode)}
+            onClick={() => {
+              const next = !showUsage;
+              setShowUsage(next);
+              if (next) setShowCode(false);
+            }}
+            className={`rounded-full border px-3 py-1.5 text-[13px] transition ${
+              showUsage
+                ? "border-[var(--border)] bg-[var(--chip-hover)] text-[var(--text)]"
+                : "border-[var(--border)] bg-[var(--chip)] text-[var(--text)] hover:bg-[var(--chip-hover)]"
+            }`}
+          >
+            {spend.tokens ? `${formatUsd(spend.costUsd)}` : "Usage"}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setShowCode(!showCode);
+              if (!showCode) setShowUsage(false);
+            }}
             className="rounded-full border border-[var(--border)] bg-[var(--chip)] px-3 py-1.5 text-[13px] text-[var(--text)] transition hover:bg-[var(--chip-hover)]"
           >
             {showCode ? "Hide code" : "Show code"}
           </button>
+          {showUsage && <UsageViewer />}
         </div>
       </div>
 

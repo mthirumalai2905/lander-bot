@@ -11,6 +11,7 @@ export function buildModelMessages(args: {
   groups: Record<string, string[]>;
   conversation: ConversationState;
   userMessage: string;
+  source?: string;
 }): { role: "system" | "user" | "assistant"; content: string }[] {
   const references = buildReferenceMap(args.registry, args.conversation, args.groups);
   const recentMessages = args.conversation.messages.slice(-MAX_MESSAGES);
@@ -23,6 +24,7 @@ export function buildModelMessages(args: {
 
   const canvasContext = {
     sessionType: args.registry[0]?.type ?? "strand",
+    liveSource: args.source ?? "",
     components: args.registry.map((component) => ({
       id: component.id,
       type: component.type,

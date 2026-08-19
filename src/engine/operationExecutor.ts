@@ -427,6 +427,15 @@ export function executeOperation(operation: Operation, current: EngineState): Ex
       };
     }
 
+    case "source_edit":
+      return {
+        ok: true,
+        state,
+        createdIds: [],
+        deletedIds: [],
+        modifiedIds: state.registry.map((component) => component.id),
+      };
+
     case "set_text": {
       const nextText = operation.text.trim().slice(0, 48);
       if (!nextText) {

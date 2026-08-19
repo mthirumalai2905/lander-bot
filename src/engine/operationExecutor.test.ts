@@ -272,6 +272,162 @@ describe("operation engine", () => {
     expect(result.state.registry[0].state.colors).toHaveLength(3);
   });
 
+  it("puts a 7-ribbon copy to the right instead of moving the locked original", () => {
+    const operations = inferFallbackOperations(
+      "have a copy rihgt side iof the main one and make it 7 strnads wiht all the differnt colors",
+      freshState().registry,
+    );
+    expect(operations).toHaveLength(1);
+    expect(operations[0]).toMatchObject({
+      type: "duplicate",
+      sourceId: "strand_1",
+      count: 1,
+    });
+    if (operations[0]?.type === "duplicate") {
+      expect(operations[0].copies?.[0]?.position?.relation).toBe("right");
+      expect(operations[0].copies?.[0]?.colors).toHaveLength(7);
+    }
+    const result = executeOperation(operations[0], freshState());
+    expect(result.ok).toBe(true);
+    expect(result.state.registry).toHaveLength(2);
+    expect(result.state.registry[1].state.x).toBeGreaterThan(result.state.registry[0].state.x);
+    expect(result.state.registry[1].state.colors).toHaveLength(7);
+  });
+
+  it("traces ribbons around a square on the same canvas", () => {
+    const operations = inferFallbackOperations(
+      "change into a square and have those ribbons cover the square boundaries",
+      freshState().registry,
+    );
+    expect(operations[0]?.type).toBe("source_edit");
+    if (operations[0]?.type === "source_edit") {
+      expect(operations[0].source).toContain('shape="square"');
+    }
+    expect(operations.some((operation) => operation.type === "duplicate")).toBe(false);
+  });
+
+  it("makes a heart with 3 strands on the same canvas and does not copy", () => {
+    const operations = inferFallbackOperations(
+      "make it heart shape have 3 strands in them inside of 1 but inside the same canvas only",
+      freshState().registry,
+    );
+    expect(operations.some((operation) => operation.type === "duplicate")).toBe(false);
+    expect(operations[0]).toMatchObject({ type: "source_edit" });
+    if (operations[0]?.type === "source_edit") {
+      expect(operations[0].source).toContain('shape="heart"');
+    }
+    expect(operations[1]).toMatchObject({
+      type: "recolor",
+      targetIds: ["strand_1"],
+    });
+    if (operations[1]?.type === "recolor") {
+      expect(operations[1].colors).toHaveLength(3);
+    }
+  });
+
+  it("turns an elliptical follow-up into a source edit on the same canvas", () => {
+    const first = inferFallbackOperations("now make this elliptical", freshState().registry);
+    expect(first[0]?.type).toBe("source_edit");
+    if (first[0]?.type === "source_edit") {
+      expect(first[0].source).toContain('shape="ellipse"');
+    }
+    expect(first.some((operation) => operation.type === "duplicate")).toBe(false);
+
+    const afterCircle = inferFallbackOperations(
+      "turn this component into elliptical",
+      freshState().registry,
+      {
+        selectedComponentIds: ["strand_1"],
+        lastCreatedComponentIds: [],
+        lastModifiedComponentIds: ["strand_1"],
+        lastCreatedGroupId: null,
+        groups: {},
+        currentSource: `import { RibbonField } from "@lander/kit";
+export default function Visual({ state }) {
+  return <RibbonField state={state} shape="circle" />;
+}
+`,
+      },
+    );
+    expect(afterCircle[0]?.type).toBe("source_edit");
+    if (afterCircle[0]?.type === "source_edit") {
+      expect(afterCircle[0].source).toContain('shape="ellipse"');
+    }
+  });
+
+  it("bulges a ring left and right instead of trying to move the locked original", () => {
+    const operations = inferFallbackOperations(
+      "make it bulge from the left and right ends",
+      freshState().registry,
+      {
+        selectedComponentIds: ["strand_1"],
+        lastCreatedComponentIds: [],
+        lastModifiedComponentIds: ["strand_1"],
+        lastCreatedGroupId: null,
+        groups: {},
+        currentSource: `import { RibbonField } from "@lander/kit";
+export default function Visual({ state }) {
+  return <RibbonField state={state} shape="circle" />;
+}
+`,
+      },
+    );
+    expect(operations.some((operation) => operation.type === "move")).toBe(false);
+    expect(operations[0]?.type).toBe("source_edit");
+    if (operations[0]?.type === "source_edit") {
+      expect(operations[0].source).toContain('shape="ellipse"');
+    }
+  });
+
+  it("turns a parabola request into a source edit on the same canvas", () => {
+    const operations = inferFallbackOperations(
+      "turn this into parabola shape",
+      freshState().registry,
+    );
+    expect(operations[0]?.type).toBe("source_edit");
+    if (operations[0]?.type === "source_edit") {
+      expect(operations[0].source).toContain('shape="parabola"');
+    }
+    expect(operations.some((operation) => operation.type === "duplicate")).toBe(false);
+  });
+
+  it("turns a DNA request into a source edit instead of a duplicate", () => {
+    const operations = inferFallbackOperations(
+      "can u make this strand look like a DNA",
+      freshState().registry,
+    );
+    expect(operations[0]?.type).toBe("source_edit");
+    if (operations[0]?.type === "source_edit") {
+      expect(operations[0].source).toContain('shape="dna"');
+    }
+  });
+
+  it("turns a heart-shape request into a source edit instead of a duplicate", () => {
+    const operations = inferFallbackOperations(
+      "i want u to get the current componetn and then turn it into heart shaped",
+      freshState().registry,
+    );
+    expect(operations).toHaveLength(1);
+    expect(operations[0]?.type).toBe("source_edit");
+    if (operations[0]?.type === "source_edit") {
+      expect(operations[0].source).toContain("RibbonField");
+      expect(operations[0].source).toContain("heart");
+    }
+  });
+
+  it("turns a star-shape request into star particles instead of a duplicate", () => {
+    resetIdCounters({ particles: 1, group: 0 });
+    const registry = createInitialRegistry("particles");
+    const operations = inferFallbackOperations(
+      "can u make this particular star shaped",
+      registry,
+    );
+    expect(operations[0]?.type).toBe("source_edit");
+    if (operations[0]?.type === "source_edit") {
+      expect(operations[0].source).toContain("StarField");
+    }
+  });
+
   it("changes ascii text instead of duplicating", () => {
     resetIdCounters({ ascii: 1, group: 0 });
     const registry = createInitialRegistry("ascii");

@@ -33,6 +33,7 @@ uniform float uIntensity;
 uniform float uOpacity;
 uniform float uScale;
 uniform float uSaturation;
+uniform int uShape;
 
 out vec4 fragColor;
 
@@ -57,12 +58,87 @@ vec3 strandColor(float t) {
   return spectrum(t);
 }
 
+float sdHeart(vec2 p) {
+  p.x = abs(p.x);
+  p.y = 0.65 - p.y;
+  if (p.y + p.x > 1.0) {
+    return length(p - vec2(0.25, 0.75)) - sqrt(2.0) * 0.25;
+  }
+  return sqrt(min(dot(p - vec2(0.0, 1.0), p - vec2(0.0, 1.0)),
+                  dot(p - 0.5 * max(p.x + p.y, 0.0), p - 0.5 * max(p.x + p.y, 0.0))))
+    * sign(p.x - p.y);
+}
+
+float sdSegment(vec2 p, vec2 a, vec2 b) {
+  vec2 pa = p - a;
+  vec2 ba = b - a;
+  float h = clamp(dot(pa, ba) / max(dot(ba, ba), 0.0001), 0.0, 1.0);
+  return length(pa - ba * h);
+}
+
+float sdBox(vec2 p, vec2 b) {
+  vec2 d = abs(p) - b;
+  return length(max(d, 0.0)) + min(max(d.x, d.y), 0.0);
+}
+
+float sdCircle(vec2 p, float r) {
+  return length(p) - r;
+}
+
+float sdEllipse(vec2 p, vec2 r) {
+  return (length(p / r) - 1.0) * min(r.x, r.y);
+}
+
+float sdTriangle(vec2 p) {
+  p.y += 0.12;
+  const float k = sqrt(3.0);
+  p.x = abs(p.x) - 0.55;
+  p.y = p.y + 0.55 / k;
+  if (p.x + k * p.y > 0.0) {
+    p = vec2(p.x - k * p.y, -k * p.x - p.y) * 0.5;
+  }
+  p.x -= clamp(p.x, -1.1, 0.0);
+  return -length(p) * sign(p.y);
+}
+
+float sdDiamond(vec2 p, vec2 b) {
+  p = abs(p);
+  float h = clamp(dot(b - 2.0 * p, b) / dot(b, b), -1.0, 1.0);
+  float d = length(p - 0.5 * b * vec2(1.0 - h, 1.0 + h));
+  return d * sign(p.x * b.y + p.y * b.x - b.x * b.y);
+}
+
+float sdHexagon(vec2 p, float r) {
+  const vec3 k = vec3(-0.866025404, 0.5, 0.577350269);
+  p = abs(p);
+  p -= 2.0 * min(dot(k.xy, p), 0.0) * k.xy;
+  p -= vec2(clamp(p.x, -k.z * r, k.z * r), r);
+  return length(p) * sign(p.y);
+}
+
+float sdStar(vec2 p) {
+  const vec2 k1 = vec2(0.809016994375, -0.587785252292);
+  const vec2 k2 = vec2(-0.809016994375, -0.587785252292);
+  p.x = abs(p.x);
+  p -= 2.0 * max(dot(k1, p), 0.0) * k1;
+  p -= 2.0 * max(dot(k2, p), 0.0) * k2;
+  p.x = abs(p.x);
+  p.y -= 0.55;
+  vec2 ba = vec2(0.587785252292, 0.809016994375) * 0.42 - vec2(0.0, 1.0);
+  float h = clamp(dot(p, ba) / dot(ba, ba), 0.0, 0.55);
+  return length(p - ba * h) * sign(p.y * ba.x - p.x * ba.y);
+}
+
 void main() {
   vec2 uv = (gl_FragCoord.xy - 0.5 * uResolution) / uResolution.y;
   uv /= max(uScale, 0.0001);
 
   float e = 0.06 + uIntensity * 0.94;
-  float env = pow(max(cos(uv.x * PI * 1.3), 0.0), uTaper);
+  float env = uShape == 0 || uShape == 3
+    ? pow(max(cos(uv.x * PI * 1.15), 0.0), uTaper)
+    : uShape == 10
+      ? pow(max(1.0 - abs(uv.x) * 1.05, 0.0), 0.35)
+      : 1.0;
 
   vec3 col = vec3(0.0);
 
@@ -82,6 +158,48 @@ void main() {
     float y = w * amp;
 
     float d = abs(uv.y - y);
+    if (uShape == 1) {
+      float offset = (fi - float(uStrandCount - 1) * 0.5) * 0.028 * uSpread;
+      float wobble = w * 0.012 * uAmplitude;
+      d = abs(sdHeart(uv * 1.15) - offset - wobble);
+    } else if (uShape == 2) {
+      float offset = (fi - float(uStrandCount - 1) * 0.5) * 0.03 * uSpread;
+      float wobble = w * 0.012 * uAmplitude;
+      d = abs(sdStar(uv * 1.05) - offset - wobble);
+    } else if (uShape == 3) {
+      float helixAmp = 0.24 * uAmplitude;
+      float helix = sin(uv.x * 5.4 * uWaviness + tt * spd) * helixAmp;
+      d = mod(fi, 2.0) < 0.5 ? abs(uv.y - helix) : abs(uv.y + helix);
+      if (i == 0) {
+        float cell = floor((uv.x + 3.0) / 0.17);
+        float cx = (cell + 0.5) * 0.17 - 3.0;
+        float hy = sin(cx * 5.4 * uWaviness + tt * spd) * helixAmp;
+        float dRung = sdSegment(uv, vec2(cx, hy), vec2(cx, -hy));
+        d = min(d, dRung);
+      }
+    } else if (uShape == 10) {
+      float offset = (fi - float(uStrandCount - 1) * 0.5) * 0.05 * uSpread;
+      float wobble = w * 0.018 * uAmplitude;
+      float px = uv.x * 1.25;
+      float curve = 0.95 * px * px - 0.28;
+      d = abs(uv.y - curve - offset - wobble);
+    } else if (uShape >= 4) {
+      float offset = (fi - float(uStrandCount - 1) * 0.5) * 0.032 * uSpread;
+      float wobble = w * 0.01 * uAmplitude;
+      float outline = uShape == 4
+        ? sdBox(uv * 1.05, vec2(0.5))
+        : uShape == 5
+          ? sdCircle(uv, 0.5)
+          : uShape == 6
+            ? sdTriangle(uv * 1.05)
+            : uShape == 7
+              ? sdDiamond(uv * 1.08, vec2(0.62, 0.62))
+              : uShape == 8
+                ? sdHexagon(uv * 1.05, 0.5)
+                : sdEllipse(uv, vec2(0.74, 0.36));
+      d = abs(outline + offset + wobble);
+    }
+
     float thick = (0.001 + 0.05 * e) * (0.35 + env) * uThickness;
     float g = thick / (d + thick * 0.45);
     g = g * g;
@@ -160,6 +278,7 @@ void main() {
 `;
 
 export interface StrandsProps {
+  shape?: "wave" | "heart" | "star" | "dna" | "square" | "circle" | "ellipse" | "parabola" | "triangle" | "diamond" | "hexagon";
   colors?: string[];
   count?: number;
   speed?: number;
@@ -184,8 +303,22 @@ export interface StrandsProps {
 }
 
 type LiveProps = Required<
-  Omit<StrandsProps, "className" | "style" | "speeds">
-> & { speeds: number[] };
+  Omit<StrandsProps, "className" | "style" | "speeds" | "shape">
+> & { speeds: number[]; shape: NonNullable<StrandsProps["shape"]> };
+
+function shapeId(shape: NonNullable<StrandsProps["shape"]>): number {
+  if (shape === "heart") return 1;
+  if (shape === "star") return 2;
+  if (shape === "dna") return 3;
+  if (shape === "square") return 4;
+  if (shape === "circle") return 5;
+  if (shape === "triangle") return 6;
+  if (shape === "diamond") return 7;
+  if (shape === "hexagon") return 8;
+  if (shape === "ellipse") return 9;
+  if (shape === "parabola") return 10;
+  return 0;
+}
 
 function buildPalette(colors: string[]): number[][] {
   const filled = colors.length ? colors : ["#ffffff"];
@@ -207,6 +340,7 @@ function buildSpeeds(speeds: number[] | undefined, count: number): number[] {
 }
 
 export default function Strands({
+  shape = "wave",
   colors = ["#FF4242", "#7C3AED", "#06B6D4", "#EAB308"],
   count = 3,
   speed = 0.5,
@@ -230,6 +364,7 @@ export default function Strands({
   style,
 }: StrandsProps) {
   const propsRef = useRef<LiveProps>({
+    shape,
     colors,
     count,
     speed,
@@ -252,6 +387,7 @@ export default function Strands({
   });
 
   propsRef.current = {
+    shape,
     colors,
     count,
     speed,
@@ -318,6 +454,7 @@ export default function Strands({
         uOpacity: { value: initial.opacity },
         uScale: { value: initial.scale },
         uSaturation: { value: initial.saturation },
+        uShape: { value: shapeId(initial.shape) },
       },
     });
 
@@ -380,6 +517,7 @@ export default function Strands({
       program.uniforms.uOpacity.value = current.opacity;
       program.uniforms.uScale.value = current.scale;
       program.uniforms.uSaturation.value = current.saturation;
+      program.uniforms.uShape.value = shapeId(current.shape);
 
       if (current.glass) {
         renderer.render({ scene: mesh, target: renderTarget });

@@ -1,5 +1,6 @@
+import { sourceForShape } from "../sessions/defaultSource";
 import type { DesignComponent } from "../types/component";
-import type { Operation } from "../types/operation";
+import type { Operation, Relation } from "../types/operation";
 import { namedColor, rainbowPalette, rampSpeeds } from "../utils/colors";
 import { buildReferenceMap } from "./referenceResolver";
 
@@ -9,6 +10,7 @@ export interface IntentContext {
   lastModifiedComponentIds: string[];
   lastCreatedGroupId: string | null;
   groups: Record<string, string[]>;
+  currentSource?: string;
 }
 
 function lowestComponent(registry: DesignComponent[]): DesignComponent | undefined {
@@ -76,6 +78,37 @@ function mentionedColors(userMessage: string): string[] {
   return found;
 }
 
+function placementRelation(userMessage: string): Relation {
+  const text = userMessage.toLowerCase();
+  if (/\b(rihgt|right)\b/.test(text)) return "right";
+  if (/\bleft\b/.test(text)) return "left";
+  if (/\b(above|up)\b/.test(text)) return "above";
+  return "below";
+}
+
+function sameCanvasOnly(userMessage: string): boolean {
+  return /\b(same canvas|same one|same component|inside (of )?1|in one|only one|don't copy|do not copy|no copy)\b/i.test(
+    userMessage,
+  );
+}
+
+function wantsCopy(userMessage: string): boolean {
+  if (sameCanvasOnly(userMessage)) return false;
+  if (/\b(look like|looks like|turn into|convert|become|shape)\b/i.test(userMessage)) {
+    return /\b(copy|copies|duplicate)\b/i.test(userMessage);
+  }
+  return (
+    /\b(copy|copies|duplicate|duplicated)\b/i.test(userMessage) ||
+    /\b(one more|another)\b.*\b(component|copy)\b/i.test(userMessage) ||
+    /\b(have|put|place|add)\s+(a\s+)?copy\b/i.test(userMessage)
+  );
+}
+
+function ribbonCountFrom(userMessage: string): number {
+  const match = userMessage.match(/\b(\d+)\s+(ribbons?|strands?|strnads?|strnds?)\b/i);
+  return match ? Number(match[1]) : 0;
+}
+
 function isChatOnly(userMessage: string): boolean {
   return /^(hi|hello|hey|thanks|thank you|ok|okay|cool|nice|yo)\b/i.test(userMessage.trim());
 }
@@ -115,6 +148,7 @@ export function inferFallbackOperations(
     lastModifiedComponentIds: [],
     lastCreatedGroupId: null,
     groups: {},
+    currentSource: undefined,
   },
 ): Operation[] {
   if (!registry.length || isChatOnly(userMessage)) return [];
@@ -123,6 +157,32 @@ export function inferFallbackOperations(
   const targets = resolveTargets(userMessage, registry, context);
   const text = userMessage.toLowerCase();
   const operations: Operation[] = [];
+
+  const shapeSource = sourceForShape(userMessage, original.type, context.currentSource);
+  const ribbons = ribbonCountFrom(userMessage);
+  const allIds = registry.map((component) => component.id);
+  const editIds = targets.length ? targets : allIds;
+
+  if (shapeSource) {
+    operations.push({ type: "source_edit", source: shapeSource });
+    if (ribbons > 0) {
+      operations.push({
+        type: "recolor",
+        targetIds: editIds,
+        colors: rainbowPalette(ribbons),
+      });
+    }
+    return operations;
+  }
+
+  if (ribbons > 0 && !wantsCopy(userMessage)) {
+    operations.push({
+      type: "recolor",
+      targetIds: editIds,
+      colors: rainbowPalette(ribbons),
+    });
+    return operations;
+  }
 
   if (/\b(don't touch|do not touch|leave .* unchanged|protect)\b/.test(text) && original) {
     operations.push({ type: "protect", targetIds: [original.id], protected: true });
@@ -138,45 +198,30 @@ export function inferFallbackOperations(
     return operations;
   }
 
-  const copyCount = text.match(
-    /\b(\d+)\s+(copies|duplicates|strands|components|auroras?|particles?|beams?|plasmas?|threads?|animated|antigravity|ascii|eyes?)\b/,
-  );
-  const ribbonCount = text.match(/\b(\d+)\s+ribbons?\b/);
-  const wantsAnother =
-    /\b(one more|another|new)\b.*\b(component|strand|copy|animation|aurora|particle|beam|plasma|thread|animated|antigravity|ascii|eye)\b/i.test(
-      userMessage,
-    ) ||
-    /\b(duplicate|copy|create|make)\b.*\b(component|strand|copy|animation|aurora|particle|beam|plasma|thread|animated|antigravity|ascii|eye)\b/i.test(
-      userMessage,
-    ) ||
-    /\b(duplicate|copy) (it|this|that|the)\b/i.test(userMessage) ||
-    Boolean(copyCount) ||
-    (Boolean(ribbonCount) &&
-      /\b(component|strand|aurora|particle|beam|plasma|thread|animated|antigravity|ascii|eye|another|one more|new)\b/i.test(
-        userMessage,
-      ));
+  const copyCount = text.match(/\b(\d+)\s+(copies|duplicates|components)\b/);
+  const ribbonCount = ribbons;
+  const wantsAnother = wantsCopy(userMessage) || Boolean(copyCount);
 
   if (wantsAnother) {
     const componentCount = copyCount ? Number(copyCount[1]) : 1;
-    const ribbons = ribbonCount ? Number(ribbonCount[1]) : /rainbow/i.test(userMessage) ? 8 : 0;
-    const colors = /rainbow/i.test(userMessage)
-      ? rainbowPalette(ribbons || 8)
+    const wantsManyColors = /rainbow|differ\w* colors/i.test(userMessage);
+    const nextRibbons = ribbonCount || (wantsManyColors ? 7 : 0);
+    const colors = wantsManyColors
+      ? rainbowPalette(nextRibbons || 7)
       : mentionedColors(userMessage);
     const progressive = /faster|slow|dynamic|progressiv|upcoming/i.test(userMessage);
-    const anchor = lowestComponent(registry) ?? original;
-    const copies = Array.from({ length: Math.max(componentCount, 1) }, (_, index) => ({
+    const relation = placementRelation(userMessage);
+    const copies = Array.from({ length: Math.max(componentCount, 1) }, () => ({
       position: {
-        relation: "below" as const,
+        relation,
         spacing: 56,
-        x: anchor.state.x,
-        y: anchor.state.y + (anchor.state.height * anchor.state.scale + 56) * (index + 1),
       },
-      colors: colors.length ? colors : ribbons ? rainbowPalette(ribbons) : undefined,
-      ribbonSpeeds: progressive && (ribbons || colors.length)
-        ? rampSpeeds(ribbons || colors.length || 8)
+      colors: colors.length ? colors : nextRibbons ? rainbowPalette(nextRibbons) : undefined,
+      ribbonSpeeds: progressive && (nextRibbons || colors.length)
+        ? rampSpeeds(nextRibbons || colors.length || 8)
         : undefined,
-      width: Math.max(anchor.state.width, 560),
-      height: Math.max(240, 200 + (ribbons || colors.length || 3) * 24),
+      width: Math.max(original.state.width, 560),
+      height: Math.max(original.state.height, 240),
     }));
 
     operations.push({
@@ -259,7 +304,16 @@ export function inferFallbackOperations(
     return operations;
   }
 
-  if (/\b(left|right|up|down|below|above)\b/i.test(userMessage)) {
+  const shapeDeform = /\b(bulge|bulging|puff|swell|stretch|wider|widen|flatten|pinch|sides|ends)\b/i.test(
+    text,
+  );
+  const bothSides = /\bleft\b/i.test(text) && /\b(rihgt|right)\b/i.test(text);
+  if (
+    /\b(left|rihgt|right|up|down|below|above)\b/i.test(userMessage) &&
+    !wantsCopy(userMessage) &&
+    !shapeDeform &&
+    !bothSides
+  ) {
     const dx = /\bleft\b/i.test(userMessage) ? -80 : /\bright\b/i.test(userMessage) ? 80 : 0;
     const dy = /\b(down|below)\b/i.test(userMessage) ? 80 : /\b(up|above)\b/i.test(userMessage) ? -80 : 0;
     operations.push({
@@ -284,12 +338,6 @@ export function inferFallbackOperations(
     return operations;
   }
 
-  operations.push({
-    type: "duplicate",
-    sourceId: original.id,
-    count: 1,
-    copies: [{ position: { relation: "below", spacing: 56 } }],
-  });
   return operations;
 }
 
@@ -331,5 +379,11 @@ export function fallbackMessage(operations: Operation[]): string {
   if (first.type === "scale") return "Resized it.";
   if (first.type === "delete") return "Removed the copy.";
   if (first.type === "set_text") return `Changed the text to ${first.text}.`;
+  if (first.type === "source_edit") {
+    if (operations.some((operation) => operation.type === "recolor")) {
+      return "Updated the shape on this canvas and set the strand count.";
+    }
+    return "Updated the shape on this canvas.";
+  }
   return "Applied that change.";
 }
